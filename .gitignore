@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Checkpoints
+checkpoints/*.pt
+checkpoints/*.pth
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
