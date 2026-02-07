@@ -1,12 +1,13 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#     "marimo[recommended]>=0.19.9",
+#     "marimo[recommended]>=0.19.0",
 #     "torch>=2.5",
 #     "torchvision>=0.20",
 #     "plotly>=5.24",
 #     "scikit-learn>=1.5",
 #     "numpy>=2.0",
+#     "pyzmq>=27.1.0",
 # ]
 # ///
 
@@ -18,7 +19,6 @@ __generated_with = "0.19.9"
 app = marimo.App(width="medium")
 
 
-# ── Theory ────────────────────────────────────────────────────────────
 @app.cell
 def _():
     import marimo as mo
@@ -39,7 +39,6 @@ def _():
     return (mo,)
 
 
-# ── Imports ───────────────────────────────────────────────────────────
 @app.cell
 def _():
     import sys
@@ -63,14 +62,20 @@ def _():
         plot_samples,
     )
     from vae_playground.utils.metrics import reconstruction_mse, compute_latent_stats
+
     return (
-        Path, Trainer, VanillaVAE, compute_latent_stats, get_dataloader, np,
-        plot_latent_space, plot_loss_curves, plot_reconstructions, plot_samples,
-        reconstruction_mse, sys, torch,
+        Trainer,
+        VanillaVAE,
+        compute_latent_stats,
+        get_dataloader,
+        plot_latent_space,
+        plot_loss_curves,
+        plot_reconstructions,
+        plot_samples,
+        torch,
     )
 
 
-# ── Configuration ─────────────────────────────────────────────────────
 @app.cell
 def _(mo):
     dataset_dd = mo.ui.dropdown(
@@ -94,10 +99,15 @@ def _(mo):
     | Epochs | {epochs_slider} |
     | Batch size | {batch_size_slider} |
     """)
-    return batch_size_slider, dataset_dd, epochs_slider, latent_dim_slider, lr_slider
+    return (
+        batch_size_slider,
+        dataset_dd,
+        epochs_slider,
+        latent_dim_slider,
+        lr_slider,
+    )
 
 
-# ── Training ──────────────────────────────────────────────────────────
 @app.cell
 def _(mo):
     train_btn = mo.ui.run_button(label="Train Model")
@@ -107,8 +117,16 @@ def _(mo):
 
 @app.cell
 def _(
-    VanillaVAE, Trainer, batch_size_slider, dataset_dd, epochs_slider,
-    get_dataloader, latent_dim_slider, lr_slider, mo, torch, train_btn,
+    Trainer,
+    VanillaVAE,
+    batch_size_slider,
+    dataset_dd,
+    epochs_slider,
+    get_dataloader,
+    latent_dim_slider,
+    lr_slider,
+    mo,
+    train_btn,
 ):
     mo.stop(not train_btn.value, mo.md("*Click **Train Model** to start.*"))
 
@@ -136,19 +154,17 @@ def _(
     val_loader = _val_loader
 
     mo.md(f"**Training complete** on `{_trainer.device}` — final train loss: {history['train_loss'][-1]:.4f}")
-    return history, model, train_loader, trainer, val_loader
+    return history, model, trainer, val_loader
 
 
-# ── Loss curves ───────────────────────────────────────────────────────
 @app.cell
 def _(history, mo, plot_loss_curves):
     mo.ui.plotly(plot_loss_curves(history, title="Vanilla VAE — Training Loss"))
     return
 
 
-# ── Reconstructions ───────────────────────────────────────────────────
 @app.cell
-def _(model, mo, plot_reconstructions, torch, val_loader):
+def _(mo, model, plot_reconstructions, torch, val_loader):
     _x, _ = next(iter(val_loader))
     _x = _x.to(model.get_device())
     with torch.no_grad():
@@ -157,24 +173,21 @@ def _(model, mo, plot_reconstructions, torch, val_loader):
     return
 
 
-# ── Latent space ──────────────────────────────────────────────────────
 @app.cell
-def _(compute_latent_stats, model, mo, plot_latent_space, val_loader):
+def _(compute_latent_stats, mo, model, plot_latent_space, val_loader):
     _stats = compute_latent_stats(model, val_loader, device=model.get_device())
     mo.ui.plotly(plot_latent_space(_stats["z"], _stats["labels"], method="tsne",
                                     title="Vanilla VAE — Latent Space (t-SNE)"))
     return
 
 
-# ── Sample from prior ────────────────────────────────────────────────
 @app.cell
-def _(model, mo, plot_samples):
+def _(mo, model, plot_samples):
     _samples = model.sample(16, device=model.get_device())
     mo.ui.plotly(plot_samples(_samples, n=16, title="Vanilla VAE — Samples from Prior"))
     return
 
 
-# ── Save checkpoint ──────────────────────────────────────────────────
 @app.cell
 def _(mo):
     save_btn = mo.ui.run_button(label="Save Checkpoint")
@@ -188,6 +201,21 @@ def _(mo, save_btn, trainer):
     _path = "checkpoints/vanilla_vae.pt"
     trainer.save_checkpoint(_path)
     mo.md(f"Checkpoint saved to `{_path}`")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 

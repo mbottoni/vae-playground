@@ -22,7 +22,6 @@ __generated_with = "0.19.9"
 app = marimo.App(width="full")
 
 
-# ── Intro ─────────────────────────────────────────────────────────────
 @app.cell
 def _():
     import marimo as mo
@@ -42,7 +41,6 @@ def _():
     return (mo,)
 
 
-# ── Imports ───────────────────────────────────────────────────────────
 @app.cell
 def _():
     import sys
@@ -65,17 +63,26 @@ def _():
         plot_samples,
     )
     from vae_playground.utils.metrics import reconstruction_mse, compute_latent_stats
+
     return (
-        MODEL_REGISTRY, Path, Trainer, compute_latent_stats, get_dataloader, np,
-        plot_latent_space, plot_loss_curves, plot_reconstructions, plot_samples,
-        reconstruction_mse, sys, torch,
+        MODEL_REGISTRY,
+        Path,
+        compute_latent_stats,
+        get_dataloader,
+        plot_latent_space,
+        plot_loss_curves,
+        plot_reconstructions,
+        plot_samples,
+        reconstruction_mse,
+        torch,
     )
 
 
-# ── Discover checkpoints ─────────────────────────────────────────────
 @app.cell
 def _(Path, mo):
-    _ckpt_dir = Path("__file__").resolve().parent.parent / "checkpoints"
+    _root = Path(__file__).resolve().parent.parent
+    _notebooks = _root / "notebooks"
+    _ckpt_dir = _notebooks / "checkpoints"
     _ckpt_files = sorted(_ckpt_dir.glob("*.pt")) if _ckpt_dir.exists() else []
     _options = {p.stem: str(p) for p in _ckpt_files}
 
@@ -93,7 +100,6 @@ def _(Path, mo):
     return (ckpt_select,)
 
 
-# ── Dataset selector ──────────────────────────────────────────────────
 @app.cell
 def _(mo):
     dataset_dd = mo.ui.dropdown(
@@ -105,7 +111,6 @@ def _(mo):
     return (dataset_dd,)
 
 
-# ── Load models ───────────────────────────────────────────────────────
 @app.cell
 def _(mo):
     load_btn = mo.ui.run_button(label="Load & Compare")
@@ -115,8 +120,14 @@ def _(mo):
 
 @app.cell
 def _(
-    MODEL_REGISTRY, Trainer, ckpt_select, dataset_dd, get_dataloader,
-    load_btn, mo, torch,
+    MODEL_REGISTRY,
+    Path,
+    ckpt_select,
+    dataset_dd,
+    get_dataloader,
+    load_btn,
+    mo,
+    torch,
 ):
     mo.stop(not load_btn.value, mo.md("*Select checkpoints and click **Load & Compare**.*"))
     mo.stop(len(ckpt_select.value) < 2, mo.md("*Please select at least **2** models to compare.*"))
@@ -147,7 +158,6 @@ def _(
     return loaded_models, test_loader
 
 
-# ── Reconstruction comparison ─────────────────────────────────────────
 @app.cell
 def _(loaded_models, mo, plot_reconstructions, test_loader, torch):
     _x, _ = next(iter(test_loader))
@@ -162,56 +172,136 @@ def _(loaded_models, mo, plot_reconstructions, test_loader, torch):
     return
 
 
-# ── Latent space comparison ──────────────────────────────────────────
 @app.cell
-def _(compute_latent_stats, loaded_models, mo, plot_latent_space, test_loader, torch):
-    _tabs = {}
-    for _name, _info in loaded_models.items():
+def _(compute_latent_stats, loaded_models, mo, plot_latent_space, test_loader):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    _model_names = list(loaded_models.keys())
+    _n_models = len(_model_names)
+    _cols = min(3, _n_models)
+    _rows = (_n_models + _cols - 1) // _cols
+
+    _fig = make_subplots(
+        rows=_rows, cols=_cols,
+        subplot_titles=[f"{name} — Latent Space (t-SNE)" for name in _model_names],
+        horizontal_spacing=0.1,
+        vertical_spacing=0.15
+    )
+
+    for _idx, (_name, _info) in enumerate(loaded_models.items()):
         _m = _info["model"]
+        _row = _idx // _cols + 1
+        _col = _idx % _cols + 1
+    
         try:
             _stats = compute_latent_stats(_m, test_loader, device="cpu")
-            _fig = plot_latent_space(_stats["z"], _stats["labels"], method="tsne",
-                                      title=f"{_name} — Latent Space (t-SNE)")
-            _tabs[_name] = mo.ui.plotly(_fig)
+            _latent_fig = plot_latent_space(_stats["z"], _stats["labels"], method="tsne",
+                                            title=f"{_name} — Latent Space (t-SNE)")
+        
+            # Add traces from the latent space plot to the subplot
+            for _trace in _latent_fig.data:
+                _fig.add_trace(_trace, row=_row, col=_col)
         except Exception:
-            _tabs[_name] = mo.md(f"*Latent space not available for {_name}*")
-    mo.ui.tabs(_tabs)
-    return
+            # Add a text annotation for models where latent space is not available
+            _fig.add_annotation(
+                text=f"Latent space not available",
+                xref=f"x{_idx+1}" if _idx > 0 else "x",
+                yref=f"y{_idx+1}" if _idx > 0 else "y",
+                x=0.5, y=0.5,
+                showarrow=False,
+                row=_row, col=_col
+            )
+
+    _fig.update_layout(height=400 * _rows, showlegend=True)
+    mo.ui.plotly(_fig)
+    return (make_subplots,)
 
 
-# ── Loss curves comparison ───────────────────────────────────────────
 @app.cell
-def _(loaded_models, mo, plot_loss_curves):
-    _tabs = {}
-    for _name, _info in loaded_models.items():
+def _(loaded_models, make_subplots, mo, plot_loss_curves):
+    _model_names = list(loaded_models.keys())
+    _n_models = len(_model_names)
+    _cols = min(3, _n_models)
+    _rows = (_n_models + _cols - 1) // _cols
+
+    _fig = make_subplots(
+        rows=_rows, cols=_cols,
+        subplot_titles=[f"{name} — Loss Curves" for name in _model_names],
+        horizontal_spacing=0.1,
+        vertical_spacing=0.15
+    )
+
+    for _idx, (_name, _info) in enumerate(loaded_models.items()):
         _hist = _info.get("history", {})
+        _row = _idx // _cols + 1
+        _col = _idx % _cols + 1
+    
         if _hist:
-            _fig = plot_loss_curves(_hist, title=f"{_name} — Loss Curves")
-            _tabs[_name] = mo.ui.plotly(_fig)
+            _loss_fig = plot_loss_curves(_hist, title=f"{_name} — Loss Curves")
+        
+            # Add traces from the loss curves plot to the subplot
+            for _trace in _loss_fig.data:
+                _fig.add_trace(_trace, row=_row, col=_col)
         else:
-            _tabs[_name] = mo.md(f"*No training history for {_name}*")
-    mo.ui.tabs(_tabs)
+            # Add a text annotation for models where history is not available
+            _fig.add_annotation(
+                text=f"No training history",
+                xref=f"x{_idx+1}" if _idx > 0 else "x",
+                yref=f"y{_idx+1}" if _idx > 0 else "y",
+                x=0.5, y=0.5,
+                showarrow=False,
+                row=_row, col=_col
+            )
+
+    _fig.update_layout(height=400 * _rows, showlegend=True)
+    mo.ui.plotly(_fig)
     return
 
 
-# ── Samples comparison ───────────────────────────────────────────────
 @app.cell
-def _(loaded_models, mo, plot_samples, torch):
-    _tabs = {}
-    for _name, _info in loaded_models.items():
+def _(loaded_models, make_subplots, mo, plot_samples, torch):
+    _model_names = list(loaded_models.keys())
+    _n_models = len(_model_names)
+    _cols = min(3, _n_models)
+    _rows = (_n_models + _cols - 1) // _cols
+
+    _fig = make_subplots(
+        rows=_rows, cols=_cols,
+        subplot_titles=[f"{name} — Samples" for name in _model_names],
+        horizontal_spacing=0.1,
+        vertical_spacing=0.15
+    )
+
+    for _idx, (_name, _info) in enumerate(loaded_models.items()):
         _m = _info["model"]
+        _row = _idx // _cols + 1
+        _col = _idx % _cols + 1
+    
         try:
             with torch.no_grad():
                 _s = _m.sample(16, device="cpu")
-            _fig = plot_samples(_s, n=16, title=f"{_name} — Samples")
-            _tabs[_name] = mo.ui.plotly(_fig)
+            _sample_fig = plot_samples(_s, n=16, title=f"{_name} — Samples")
+        
+            # Add traces from the samples plot to the subplot
+            for _trace in _sample_fig.data:
+                _fig.add_trace(_trace, row=_row, col=_col)
         except Exception:
-            _tabs[_name] = mo.md(f"*Sampling not available for {_name}*")
-    mo.ui.tabs(_tabs)
+            # Add a text annotation for models where sampling is not available
+            _fig.add_annotation(
+                text=f"Sampling not available",
+                xref=f"x{_idx+1}" if _idx > 0 else "x",
+                yref=f"y{_idx+1}" if _idx > 0 else "y",
+                x=0.5, y=0.5,
+                showarrow=False,
+                row=_row, col=_col
+            )
+
+    _fig.update_layout(height=400 * _rows, showlegend=False)
+    mo.ui.plotly(_fig)
     return
 
 
-# ── Quantitative comparison ──────────────────────────────────────────
 @app.cell
 def _(loaded_models, mo, reconstruction_mse, test_loader):
     _rows = []
@@ -225,6 +315,21 @@ def _(loaded_models, mo, reconstruction_mse, test_loader):
 
     mo.md("## Quantitative Comparison")
     mo.ui.table(_rows) if _rows else mo.md("*No metrics computed.*")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 
