@@ -168,3 +168,88 @@ def plot_samples(
     fig.update_xaxes(showticklabels=False)
     fig.update_yaxes(showticklabels=False)
     return fig
+
+
+# ------------------------------------------------------------------
+# VQ-VAE codebook analysis
+# ------------------------------------------------------------------
+
+def plot_codebook_usage(
+    usage: np.ndarray,
+    title: str = "Codebook Usage",
+) -> go.Figure:
+    """Bar chart of how frequently each codebook entry was selected.
+
+    Parameters
+    ----------
+    usage : (K,) integer array — count of selections per code.
+    """
+    K = len(usage)
+    uniform = usage.sum() / K
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=list(range(K)),
+        y=usage.tolist(),
+        marker=dict(
+            color=usage.tolist(),
+            colorscale="Blues",
+            showscale=True,
+            colorbar=dict(title="Count"),
+        ),
+        name="usage",
+    ))
+    fig.add_hline(
+        y=uniform,
+        line_dash="dash",
+        line_color="red",
+        annotation_text="uniform",
+        annotation_position="top right",
+    )
+    n_active = int((usage > 0).sum())
+    fig.update_layout(
+        title_text=f"{title}  ({n_active}/{K} codes active)",
+        xaxis_title="Codebook index",
+        yaxis_title="Selection count",
+        height=380,
+        margin=dict(l=50, r=10, t=50, b=40),
+        showlegend=False,
+    )
+    return fig
+
+
+def plot_codebook_grid(
+    model: Any,
+    n: int = 32,
+    device: torch.device | str = "cpu",
+    title: str = "Codebook Entries (decoded)",
+) -> go.Figure:
+    """Decode each codebook entry individually and display as an image grid.
+
+    For each of the first *n* entries in the VQ-VAE codebook, all spatial
+    positions of the latent map are set to that entry's embedding vector and
+    the result is decoded.
+
+    Parameters
+    ----------
+    model : VQVAE instance.
+    n : number of codebook entries to visualise.
+    """
+    model.eval()
+    n = min(n, model.num_embeddings)
+
+    with torch.no_grad():
+        # Determine spatial size of the latent map
+        dummy = torch.zeros(1, model.in_channels, model.image_size, model.image_size, device=device)
+        z_e = model.encoder(dummy)
+        _, _, H, W = z_e.shape
+
+        images_list: list[torch.Tensor] = []
+        for k in range(n):
+            e_k = model.vq.embedding.weight[k]          # (D,)
+            z_q = e_k.view(1, model.latent_dim, 1, 1).expand(1, model.latent_dim, H, W)
+            img = model.decode(z_q)                      # (1, C, H, W)
+            images_list.append(img.cpu())
+
+    images = torch.cat(images_list, dim=0)               # (n, C, H, W)
+    return plot_samples(images, n=n, title=title)

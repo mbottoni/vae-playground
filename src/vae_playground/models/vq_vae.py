@@ -34,7 +34,7 @@ class VectorQuantizer(nn.Module):
         self.embedding = nn.Embedding(num_embeddings, embedding_dim)
         self.embedding.weight.data.uniform_(-1.0 / num_embeddings, 1.0 / num_embeddings)
 
-    def forward(self, z_e: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, z_e: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Quantise encoder output.
 
         Parameters
@@ -45,6 +45,7 @@ class VectorQuantizer(nn.Module):
         -------
         z_q : quantised tensor (same shape), with straight-through gradient.
         codebook_loss, commitment_loss : scalar losses.
+        indices : (B, H, W) int64 — selected codebook index per spatial position.
         """
         # (B, D, H, W) -> (B*H*W, D)
         z_e_flat = z_e.permute(0, 2, 3, 1).contiguous().view(-1, self.D)
@@ -68,7 +69,8 @@ class VectorQuantizer(nn.Module):
         # Reshape back
         B, D, H, W = z_e.shape
         z_q = z_q_flat_st.view(B, H, W, D).permute(0, 3, 1, 2).contiguous()
-        return z_q, codebook_loss, commitment_loss
+        indices_2d = indices.view(B, H, W)
+        return z_q, codebook_loss, commitment_loss, indices_2d
 
 
 class VQVAE(BaseVAE):
@@ -148,13 +150,14 @@ class VQVAE(BaseVAE):
 
     def forward(self, x: torch.Tensor, **kwargs: Any) -> dict[str, torch.Tensor]:
         z_e = self.encode(x)[0]
-        z_q, codebook_loss, commitment_loss = self.vq(z_e)
+        z_q, codebook_loss, commitment_loss, indices = self.vq(z_e)
         recon = self.decode(z_q)
         return {
             "recon": recon,
             "input": x,
             "z_e": z_e,
             "z_q": z_q,
+            "indices": indices,
             "codebook_loss": codebook_loss,
             "commitment_loss": commitment_loss,
         }

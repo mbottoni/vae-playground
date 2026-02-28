@@ -58,9 +58,55 @@ def compute_latent_stats(
             x = x.to(device)
             params = model.encode(x)
             mu = params[0]
+            if mu.dim() == 4:  # VQ-VAE spatial output (B, D, H, W) -> (B, D*H*W)
+                mu = mu.flatten(1)
             all_z.append(mu.cpu())
             all_labels.append(y)
     return {
         "z": torch.cat(all_z).numpy(),
         "labels": torch.cat(all_labels).numpy(),
     }
+
+
+def compute_codebook_stats(
+    model: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.device | str = "cpu",
+    max_batches: int | None = 20,
+) -> dict:
+    """Compute codebook usage statistics for a VQ-VAE model.
+
+    Parameters
+    ----------
+    model : a VQVAE instance whose ``forward`` returns an ``"indices"`` key.
+    dataloader : supplies (images, labels) tuples.
+    max_batches : cap on how many batches to evaluate (``None`` = all).
+
+    Returns
+    -------
+    dict with keys:
+
+    ``"usage"``
+        np.ndarray of shape (K,) — how many times each code was selected.
+    ``"perplexity"``
+        float — ``exp(entropy)``, ranges from 1 (total collapse) to K (uniform).
+    """
+    K = model.num_embeddings
+    usage = np.zeros(K, dtype=np.int64)
+
+    model.eval()
+    with torch.no_grad():
+        for i, (x, _) in enumerate(dataloader):
+            if max_batches is not None and i >= max_batches:
+                break
+            x = x.to(device)
+            fwd = model(x)
+            flat = fwd["indices"].cpu().numpy().flatten()
+            np.add.at(usage, flat, 1)
+
+    total = usage.sum()
+    probs = usage / max(total, 1)
+    nonzero = probs[probs > 0]
+    entropy = -float(np.sum(nonzero * np.log(nonzero)))
+    perplexity = float(np.exp(entropy))
+    return {"usage": usage, "perplexity": perplexity}

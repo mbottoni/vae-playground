@@ -18,7 +18,6 @@ __generated_with = "0.19.9"
 app = marimo.App(width="medium")
 
 
-# ── Theory ────────────────────────────────────────────────────────────
 @app.cell
 def _():
     import marimo as mo
@@ -45,7 +44,6 @@ def _():
     return (mo,)
 
 
-# ── Imports ───────────────────────────────────────────────────────────
 @app.cell
 def _():
     import sys
@@ -65,15 +63,25 @@ def _():
         plot_reconstructions,
         plot_loss_curves,
         plot_samples,
+        plot_codebook_usage,
+        plot_codebook_grid,
     )
-    from vae_playground.utils.metrics import reconstruction_mse
+    from vae_playground.utils.metrics import reconstruction_mse, compute_codebook_stats
+
     return (
-        Path, Trainer, VQVAE, get_dataloader, np, plot_loss_curves,
-        plot_reconstructions, plot_samples, reconstruction_mse, sys, torch,
+        Trainer,
+        VQVAE,
+        compute_codebook_stats,
+        get_dataloader,
+        plot_codebook_grid,
+        plot_codebook_usage,
+        plot_loss_curves,
+        plot_reconstructions,
+        plot_samples,
+        torch,
     )
 
 
-# ── Configuration ─────────────────────────────────────────────────────
 @app.cell
 def _(mo):
     dataset_dd = mo.ui.dropdown(
@@ -102,12 +110,16 @@ def _(mo):
     | Batch size | {batch_size_slider} |
     """)
     return (
-        batch_size_slider, commit_slider, dataset_dd, embedding_dim_slider,
-        epochs_slider, lr_slider, num_embed_slider,
+        batch_size_slider,
+        commit_slider,
+        dataset_dd,
+        embedding_dim_slider,
+        epochs_slider,
+        lr_slider,
+        num_embed_slider,
     )
 
 
-# ── Training ──────────────────────────────────────────────────────────
 @app.cell
 def _(mo):
     train_btn = mo.ui.run_button(label="Train Model")
@@ -117,9 +129,18 @@ def _(mo):
 
 @app.cell
 def _(
-    Trainer, VQVAE, batch_size_slider, commit_slider, dataset_dd,
-    embedding_dim_slider, epochs_slider, get_dataloader, lr_slider, mo,
-    num_embed_slider, torch, train_btn,
+    Trainer,
+    VQVAE,
+    batch_size_slider,
+    commit_slider,
+    dataset_dd,
+    embedding_dim_slider,
+    epochs_slider,
+    get_dataloader,
+    lr_slider,
+    mo,
+    num_embed_slider,
+    train_btn,
 ):
     mo.stop(not train_btn.value, mo.md("*Click **Train Model** to start.*"))
 
@@ -149,19 +170,17 @@ def _(
     val_loader = _val_loader
 
     mo.md(f"**Training complete** on `{_trainer.device}` — final train loss: {history['train_loss'][-1]:.4f}")
-    return history, model, train_loader, trainer, val_loader
+    return history, model, trainer, val_loader
 
 
-# ── Loss curves ───────────────────────────────────────────────────────
 @app.cell
 def _(history, mo, plot_loss_curves):
     mo.ui.plotly(plot_loss_curves(history, title="VQ-VAE — Training Loss"))
     return
 
 
-# ── Reconstructions ───────────────────────────────────────────────────
 @app.cell
-def _(model, mo, plot_reconstructions, torch, val_loader):
+def _(mo, model, plot_reconstructions, torch, val_loader):
     _x, _ = next(iter(val_loader))
     _x = _x.to(model.get_device())
     with torch.no_grad():
@@ -170,15 +189,34 @@ def _(model, mo, plot_reconstructions, torch, val_loader):
     return
 
 
-# ── Samples ──────────────────────────────────────────────────────────
 @app.cell
-def _(model, mo, plot_samples):
+def _(mo, model, plot_samples):
     _samples = model.sample(16, device=model.get_device())
     mo.ui.plotly(plot_samples(_samples, n=16, title="VQ-VAE — Samples (random codes)"))
     return
 
 
-# ── Save checkpoint ──────────────────────────────────────────────────
+@app.cell
+def _(compute_codebook_stats, mo, model, plot_codebook_usage, val_loader):
+    _stats = compute_codebook_stats(model, val_loader, device=model.get_device())
+    mo.vstack([
+        mo.md(f"## Codebook Analysis\n\n**Perplexity: {_stats['perplexity']:.1f} / {model.num_embeddings}** — higher means more uniform code usage (less collapse)."),
+        mo.ui.plotly(plot_codebook_usage(_stats["usage"], title="VQ-VAE — Codebook Usage")),
+    ])
+    return
+
+
+@app.cell
+def _(mo, model, plot_codebook_grid):
+    mo.ui.plotly(plot_codebook_grid(
+        model,
+        n=min(32, model.num_embeddings),
+        device=model.get_device(),
+        title="VQ-VAE — Codebook Entries (decoded)",
+    ))
+    return
+
+
 @app.cell
 def _(mo):
     save_btn = mo.ui.run_button(label="Save Checkpoint")
@@ -192,6 +230,11 @@ def _(mo, save_btn, trainer):
     _path = "checkpoints/vq_vae.pt"
     trainer.save_checkpoint(_path)
     mo.md(f"Checkpoint saved to `{_path}`")
+    return
+
+
+@app.cell
+def _():
     return
 
 

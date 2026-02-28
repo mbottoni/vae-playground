@@ -55,8 +55,16 @@ class Trainer:
         loss_kwargs: dict[str, Any] | None = None,
         forward_kwargs: dict[str, Any] | None = None,
         verbose: bool = True,
+        callbacks: list | None = None,
     ) -> dict[str, list[float]]:
         """Run the training loop.
+
+        Parameters
+        ----------
+        callbacks : optional list of callback objects.  Each object may
+            implement a ``step(metric: float) -> bool`` method; if it returns
+            ``True`` training stops early.  The monitored metric is the
+            validation loss when available, otherwise the training loss.
 
         Returns the full ``history`` dict mapping loss-component names to
         lists of per-epoch values.
@@ -74,6 +82,7 @@ class Trainer:
                 self.history.setdefault(key, []).append(v)
                 log += f"  | {key}: {v:.4f}"
 
+            val_metrics: dict[str, float] = {}
             if val_loader is not None:
                 val_metrics = self._run_epoch(val_loader, train=False,
                                               loss_kwargs=loss_kwargs,
@@ -85,6 +94,14 @@ class Trainer:
 
             if verbose:
                 print(log)
+
+            if callbacks:
+                monitor = val_metrics.get("loss", train_metrics.get("loss", 0.0))
+                for cb in callbacks:
+                    if hasattr(cb, "step") and cb.step(monitor):
+                        if verbose:
+                            print(f"  -> Early stopping triggered at epoch {epoch}")
+                        return self.history
 
         return self.history
 
